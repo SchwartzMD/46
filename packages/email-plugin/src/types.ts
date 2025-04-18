@@ -424,3 +424,17 @@ export interface OptionalAddressFields {
 export type SetOptionalAddressFieldsFn<Event> = (
     event: Event,
 ) => OptionalAddressFields | Promise<OptionalAddressFields>;
+
+/**
+ * @description
+ * A function used to dynamically generate the email subject based on the event.
+ *
+ * @since 2.0.0
+ * @docsCategory core plugins/EmailPlugin
+ * @docsPage Email Plugin Types
+ */
+export type SetSubjectFn<Event> = (
+    event: Event,
+    globals: { [key: string]: any },
+    injector: Injector,
+) => string | Promise<string>;

@@ -14,6 +14,7 @@ import {
     LoadDataFn,
     SetAttachmentsFn,
     SetOptionalAddressFieldsFn,
+    SetSubjectFn,
     SetTemplateVarsFn,
 } from '../types';
 
@@ -138,6 +139,7 @@ export class EmailEventHandler<T extends string = string, Event extends EventWit
     private setTemplateVarsFn: SetTemplateVarsFn<Event>;
     private setAttachmentsFn?: SetAttachmentsFn<Event>;
     private setOptionalAddressFieldsFn?: SetOptionalAddressFieldsFn<Event>;
+    private setSubjectFn?: SetSubjectFn<Event>;
     private filterFns: Array<(event: Event) => boolean> = [];
     private configurations: EmailTemplateConfig[] = [];
     private defaultSubject: string;
@@ -211,11 +213,16 @@ export class EmailEventHandler<T extends string = string, Event extends EventWit
 
     /**
      * @description
-     * Sets the default subject of the email. The subject string may use Handlebars variables defined by the
-     * setTemplateVars() method.
+     * Sets the default subject of the email. The subject can be either:
+     * - A static string that may use Handlebars variables defined by the setTemplateVars() method.
+     * - A function that dynamically generates the subject based on the event, global variables, and injector.
      */
-    setSubject(defaultSubject: string): EmailEventHandler<T, Event> {
-        this.defaultSubject = defaultSubject;
+    setSubject(subject: string | SetSubjectFn<Event>): EmailEventHandler<T, Event> {
+        if (typeof subject === 'string') {
+            this.defaultSubject = subject;
+        } else {
+            this.setSubjectFn = subject;
+        }
         return this;
     }
 
@@ -316,6 +323,7 @@ export class EmailEventHandler<T extends string = string, Event extends EventWit
         asyncHandler.setTemplateVarsFn = this.setTemplateVarsFn;
         asyncHandler.setAttachmentsFn = this.setAttachmentsFn;
         asyncHandler.setOptionalAddressFieldsFn = this.setOptionalAddressFieldsFn;
+        asyncHandler.setSubjectFn = this.setSubjectFn;
         asyncHandler.filterFns = this.filterFns;
         asyncHandler.configurations = this.configurations;
         asyncHandler.defaultSubject = this.defaultSubject;
@@ -370,7 +378,27 @@ export class EmailEventHandler<T extends string = string, Event extends EventWit
         const { ctx } = event;
         const languageCode = this.setLanguageCodeFn?.(event) || ctx.languageCode;
         const configuration = this.getBestConfiguration(ctx.channel.code, languageCode);
-        const subject = configuration ? configuration.subject : this.defaultSubject;
+        
+        let subject: string;
+        if (configuration) {
+            subject = configuration.subject;
+        } else if (this.setSubjectFn) {
+            try {
+                subject = await this.setSubjectFn(event, globals, injector);
+            } catch (err: unknown) {
+                if (err instanceof Error) {
+                    Logger.error(err.message, loggerCtx, err.stack);
+                } else {
+                    Logger.error(String(err), loggerCtx);
+                }
+                throw new Error(
+                    `Error generating dynamic subject for email handler ${this.type}: ${err}`,
+                );
+            }
+        } else {
+            subject = this.defaultSubject;
+        }
+        
         if (subject == null) {
             throw new Error(
                 `No subject field has been defined. ` +
